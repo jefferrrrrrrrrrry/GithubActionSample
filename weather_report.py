@@ -3,14 +3,52 @@ import os
 import requests
 import json
 from bs4 import BeautifulSoup
+from typing import List, Dict
 
-# 从测试号信息获取
-appID = os.environ.get("APP_ID")
-appSecret = os.environ.get("APP_SECRET")
-# 收信人ID即 用户列表中的微信号
-openId = os.environ.get("OPEN_ID")
-# 天气预报模板ID
-weather_template_id = os.environ.get("TEMPLATE_ID")
+class UserConfig:
+    def __init__(self, app_id: str, app_secret: str, open_id: str, template_id: str, city: str):
+        self.app_id = app_id.strip()
+        self.app_secret = app_secret.strip()
+        self.open_id = open_id.strip()
+        self.template_id = template_id.strip()
+        self.city = city.strip()
+
+def get_user_configs() -> List[UserConfig]:
+    """
+    从环境变量获取所有用户配置
+    环境变量格式：APP_ID="id1,id2,id3" APP_SECRET="secret1,secret2,secret3" 等
+    """
+    app_ids = os.environ.get("APP_ID", "").strip().split(',')
+    app_secrets = os.environ.get("APP_SECRET", "").strip().split(',')
+    open_ids = os.environ.get("OPEN_ID", "").strip().split(',')
+    template_ids = os.environ.get("TEMPLATE_ID", "").strip().split(',')
+    cities = os.environ.get("CITY", "北京").strip().split(',')  # 默认城市为北京
+    
+    # 确保至少有一组完整的配置
+    if not (app_ids[0] and app_secrets[0] and open_ids[0] and template_ids[0]):
+        raise ValueError("至少需要配置一个用户的完整信息")
+    
+    # 确保所有数组长度一致
+    max_length = max(len(app_ids), len(app_secrets), len(open_ids), len(template_ids))
+    
+    # 如果某个配置项的数量少于最大数量，使用最后一个值进行填充
+    app_ids.extend([app_ids[-1]] * (max_length - len(app_ids)))
+    app_secrets.extend([app_secrets[-1]] * (max_length - len(app_secrets)))
+    open_ids.extend([open_ids[-1]] * (max_length - len(open_ids)))
+    template_ids.extend([template_ids[-1]] * (max_length - len(template_ids)))
+    cities.extend([cities[-1]] * (max_length - len(cities)))
+    
+    configs = []
+    for i in range(max_length):
+        configs.append(UserConfig(
+            app_id=app_ids[i],
+            app_secret=app_secrets[i],
+            open_id=open_ids[i],
+            template_id=template_ids[i],
+            city=cities[i]
+        ))
+    
+    return configs
 
 def get_weather(my_city):
     urls = ["http://www.weather.com.cn/textFC/hb.shtml",
@@ -58,10 +96,10 @@ def get_weather(my_city):
                     return this_city, temp, weather_typ, wind
 
 
-def get_access_token():
+def get_access_token(app_id, app_secret):
     # 获取access token的url
     url = 'https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid={}&secret={}' \
-        .format(appID.strip(), appSecret.strip())
+        .format(app_id, app_secret)
     response = requests.get(url).json()
     print(response)
     access_token = response.get('access_token')
@@ -78,7 +116,7 @@ def get_daily_love():
     return daily_love
 
 
-def send_weather(access_token, weather):
+def send_weather(access_token, user_config, weather):
     # touser 就是 openID
     # template_id 就是模板ID
     # url 就是点击模板跳转的url
@@ -89,8 +127,8 @@ def send_weather(access_token, weather):
     today_str = today.strftime("%Y年%m月%d日")
 
     body = {
-        "touser": openId.strip(),
-        "template_id": weather_template_id.strip(),
+        "touser": user_config.open_id,
+        "template_id": user_config.template_id,
         "url": "https://weixin.qq.com",
         "data": {
             "date": {
@@ -117,17 +155,17 @@ def send_weather(access_token, weather):
     print(requests.post(url, json.dumps(body)).text)
 
 
-
-def weather_report(this_city):
+def weather_report(user_config):
     # 1.获取access_token
-    access_token = get_access_token()
+    access_token = get_access_token(user_config.app_id, user_config.app_secret)
     # 2. 获取天气
-    weather = get_weather(this_city)
+    weather = get_weather(user_config.city)
     print(f"天气信息： {weather}")
     # 3. 发送消息
-    send_weather(access_token, weather)
-
+    send_weather(access_token, user_config, weather)
 
 
 if __name__ == '__main__':
-    weather_report("北京")
+    user_configs = get_user_configs()
+    for user_config in user_configs:
+        weather_report(user_config)
